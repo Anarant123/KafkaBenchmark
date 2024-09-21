@@ -1,46 +1,67 @@
-﻿using Confluent.Kafka;
+﻿using System.Diagnostics;
+using Confluent.Kafka;
 
 namespace KafkaBenchmark;
 
-class KafkaLatencyBenchmark : KafkaBenchmarkBase
+class KafkaLatencyBenchmark
 {
   private const int NumberOfMessages = 1000;
 
   public static async Task RunBenchmark(ProducerConfig _producerConfig, ConsumerConfig _consumerConfig)
   {
     const string topic = "test-latency";
-    var benchmark = new KafkaLatencyBenchmark();
-    await benchmark.RunLatencyBenchmark(_producerConfig, _consumerConfig, topic);
+
+    await RunBenchmark(_producerConfig, _consumerConfig, topic);
   }
 
-  private async Task RunLatencyBenchmark(ProducerConfig _producerConfig, ConsumerConfig _consumerConfig, string _topic)
+  static async Task RunBenchmark(ProducerConfig _producerConfig, ConsumerConfig _consumerConfig, string _topic)
   {
+    var stopwatch = new Stopwatch();
     var producerLatencies = new double[NumberOfMessages];
     var consumerLatencies = new double[NumberOfMessages];
 
-    for (int i = 0; i < NumberOfMessages; i++)
+    using var producer = new ProducerBuilder<Null, string>(_producerConfig).Build();
+    using var consumer = new ConsumerBuilder<Null, string>(_consumerConfig).Build();
+    consumer.Subscribe(_topic);
+
+    for (var i = 0; i < NumberOfMessages; i++)
     {
-      producerLatencies[i] = await ProduceMessageAsync(_producerConfig, _topic, $"Сообщение {i}");
+      stopwatch.Restart();
+      var deliveryResult = await producer.ProduceAsync(_topic, new Message<Null, string> { Value = $"Сообщение {i}" });
+      stopwatch.Stop();
+      producerLatencies[i] = stopwatch.ElapsedTicks / 10000.0; // Переводим тики в миллисекунды
+
       Console.WriteLine($"Отправлено сообщение {i} с задержкой {producerLatencies[i]} мс");
     }
 
     Console.WriteLine("Ожидание получения сообщений...");
 
-    for (int i = 0; i < NumberOfMessages; i++)
+    for (var i = 0; i < NumberOfMessages; i++)
     {
-      consumerLatencies[i] = ConsumeMessage(_consumerConfig, _topic);
+      stopwatch.Restart();
+      var consumeResult = consumer.Consume();
+      stopwatch.Stop();
+      consumerLatencies[i] = stopwatch.ElapsedTicks / 10000.0; // Переводим тики в миллисекунды
+
       Console.WriteLine($"Получено сообщение {i} с задержкой {consumerLatencies[i]} мс");
     }
 
-    PrintLatencyResults(producerLatencies, "отправки");
-    PrintLatencyResults(consumerLatencies, "получения");
-  }
+    var minProducerLatency = producerLatencies.Min();
+    var maxProducerLatency = producerLatencies.Max();
+    var avgProducerLatency = producerLatencies.Average();
 
-  private void PrintLatencyResults(double[] _latencies, string _operation)
-  {
-    Console.WriteLine($"\n--- Результаты для {_operation} сообщений ---");
-    Console.WriteLine($"Минимальная задержка {_operation}: {_latencies.Min()} мс");
-    Console.WriteLine($"Максимальная задержка {_operation}: {_latencies.Max()} мс");
-    Console.WriteLine($"Средняя задержка {_operation}: {_latencies.Average()} мс");
+    var minConsumerLatency = consumerLatencies.Min();
+    var maxConsumerLatency = consumerLatencies.Max();
+    var avgConsumerLatency = consumerLatencies.Average();
+
+    Console.WriteLine($"\n--- Результаты для отправки сообщений ---");
+    Console.WriteLine($"Минимальная задержка отправки: {minProducerLatency} мс");
+    Console.WriteLine($"Максимальная задержка отправки: {maxProducerLatency} мс");
+    Console.WriteLine($"Средняя задержка отправки: {avgProducerLatency} мс");
+
+    Console.WriteLine($"\n--- Результаты для получения сообщений ---");
+    Console.WriteLine($"Минимальная задержка получения: {minConsumerLatency} мс");
+    Console.WriteLine($"Максимальная задержка получения: {maxConsumerLatency} мс");
+    Console.WriteLine($"Средняя задержка получения: {avgConsumerLatency} мс");
   }
 }
